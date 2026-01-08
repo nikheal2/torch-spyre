@@ -48,7 +48,15 @@ spyreop = torch.ops.spyre
 
 
 def stl_host_dim_order(self: SpyreTensorLayout) -> list[int]:
-    return self.dim_map[1:]
+    ndim = len(self.device_size)
+    if ndim <= 3:
+        order = self.dim_map[1:]
+    elif ndim == 4:
+        order = [self.dim_map[-2], self.dim_map[0], self.dim_map[-1]]
+    else:  # 4d
+        order = [self.dim_map[0]] + self.dim_map[2:][::-1]
+    assert len(order) == len(set(order))
+    return order
 
 
 def stl_stick_dim(self: SpyreTensorLayout) -> int:
