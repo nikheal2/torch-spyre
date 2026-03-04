@@ -300,4 +300,14 @@ def spyre__triu(self: torch.Tensor, diagonal: int = 0) -> torch.Tensor:
     return compiled_triu(self, diagonal=diagonal)
 
 
+@torch.library.register_kernel("aten::triu.out", ["spyre"])  # type:ignore
+def spyre__triu_out(
+    self: torch.Tensor, diagonal: int = 0, out: torch.Tensor = None
+) -> torch.Tensor:
+    compiled_triu = torch.compile(torch.triu, dynamic=False)
+    result = compiled_triu(self, diagonal=diagonal)
+    out.copy_(result)
+    return out
+
+
 # INSERT_CODEGEN_HERE

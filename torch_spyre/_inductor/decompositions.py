@@ -322,8 +322,10 @@ def lt_decomp(
     return torch.mul(out_le, out_ne, out=out).to(dtype=torch.bool)
 
 
-@register_spyre_decomposition([torch.ops.aten.triu.default])
-def triu_decomp(input: torch.Tensor, diagonal: int = 0) -> torch.Tensor:
+@register_spyre_decomposition([torch.ops.aten.triu.default, torch.ops.aten.triu.out])
+def triu_decomp(
+    input: torch.Tensor, diagonal: int = 0, *, out: Optional[torch.Tensor] = None
+) -> torch.Tensor:
     # Decompose triu into ops supported by Spyre:
     #   keep element at (row, col) iff col >= row + diagonal
     #
@@ -333,4 +335,8 @@ def triu_decomp(input: torch.Tensor, diagonal: int = 0) -> torch.Tensor:
     rows = torch.arange(input.shape[-2], device=input.device, dtype=input.dtype)
     cols = torch.arange(input.shape[-1], device=input.device, dtype=input.dtype)
     mask = cols.unsqueeze(-2) >= (rows.unsqueeze(-1) + diagonal)
-    return torch.where(mask, input, torch.zeros_like(input))
+    result = torch.where(mask, input, torch.zeros_like(input))
+    if out is not None:
+        out.copy_(result)
+        return out
+    return result
