@@ -771,6 +771,46 @@ class TestOps(TestCase):
 
         torch.testing.assert_close(cpu_y, spyre_y, rtol=self.rtol, atol=self.atol)
 
+    def test_triu_2d(self):
+        x = torch.randn(5, 5, dtype=self.dtype)
+        x_spyre = x.to("spyre")
+        y = torch.triu(x_spyre).to("cpu")
+        torch.testing.assert_close(y, torch.triu(x), rtol=self.rtol, atol=self.atol)
+
+    def test_triu_2d_positive_diagonal(self):
+        x = torch.randn(5, 5, dtype=self.dtype)
+        x_spyre = x.to("spyre")
+        y = torch.triu(x_spyre, diagonal=1).to("cpu")
+        torch.testing.assert_close(
+            y, torch.triu(x, diagonal=1), rtol=self.rtol, atol=self.atol
+        )
+
+    def test_triu_2d_negative_diagonal(self):
+        x = torch.randn(5, 5, dtype=self.dtype)
+        x_spyre = x.to("spyre")
+        y = torch.triu(x_spyre, diagonal=-1).to("cpu")
+        torch.testing.assert_close(
+            y, torch.triu(x, diagonal=-1), rtol=self.rtol, atol=self.atol
+        )
+
+    def test_triu_3d(self):
+        x = torch.randn(3, 4, 4, dtype=self.dtype)
+        x_spyre = x.to("spyre")
+        y = torch.triu(x_spyre).to("cpu")
+        torch.testing.assert_close(y, torch.triu(x), rtol=self.rtol, atol=self.atol)
+
+    def test_triu_rectangular(self):
+        x = torch.randn(4, 6, dtype=self.dtype)
+        x_spyre = x.to("spyre")
+        y = torch.triu(x_spyre).to("cpu")
+        torch.testing.assert_close(y, torch.triu(x), rtol=self.rtol, atol=self.atol)
+
+    def test_triu_rectangular_tall(self):
+        x = torch.randn(6, 4, dtype=self.dtype)
+        x_spyre = x.to("spyre")
+        y = torch.triu(x_spyre).to("cpu")
+        torch.testing.assert_close(y, torch.triu(x), rtol=self.rtol, atol=self.atol)
+
     @pytest.mark.filterwarnings("ignore::torch_spyre.fallbacks.FallbackWarning")
     def test_embedding_with_padding_idx(self):
         # an embedding matrix containing 10 tensors of size 3

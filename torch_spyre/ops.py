@@ -294,4 +294,10 @@ def spyre__uniform_(self, from_=0.0, to=1.0, generator=None):
     return self
 
 
+@torch.library.register_kernel("aten::triu", ["spyre"])  # type:ignore
+def spyre__triu(self: torch.Tensor, diagonal: int = 0) -> torch.Tensor:
+    compiled_triu = torch.compile(torch.triu, dynamic=False)
+    return compiled_triu(self, diagonal=diagonal)
+
+
 # INSERT_CODEGEN_HERE
