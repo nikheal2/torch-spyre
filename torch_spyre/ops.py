@@ -304,8 +304,9 @@ def spyre__triu(self: torch.Tensor, diagonal: int = 0) -> torch.Tensor:
 def spyre__triu_out(
     self: torch.Tensor, diagonal: int = 0, out: torch.Tensor = None
 ) -> torch.Tensor:
-    out.copy_(spyre__triu(self, diagonal))
-    return out
+    # Out variant — mirrors silu.out / mish.out pattern
+    compiled_triu_out = torch.compile(torch.ops.aten.triu.out, dynamic=False)
+    return compiled_triu_out(self, diagonal, out=out)
 
 
 # INSERT_CODEGEN_HERE
