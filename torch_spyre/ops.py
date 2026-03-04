@@ -304,9 +304,7 @@ def spyre__triu(self: torch.Tensor, diagonal: int = 0) -> torch.Tensor:
 def spyre__triu_out(
     self: torch.Tensor, diagonal: int = 0, out: torch.Tensor = None
 ) -> torch.Tensor:
-    compiled_triu = torch.compile(torch.triu, dynamic=False)
-    result = compiled_triu(self, diagonal=diagonal)
-    out.copy_(result)
+    out.copy_(spyre__triu(self, diagonal))
     return out
 
 
