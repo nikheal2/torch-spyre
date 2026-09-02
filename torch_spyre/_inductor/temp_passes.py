@@ -14,9 +14,11 @@
 
 # This file contains inductor passes that are only needed as temp fixes
 
+import contextlib
 from math import prod
 
 import torch
+from torch._guards import detect_fake_mode
 from torch.fx.experimental.symbolic_shapes import statically_known_true, sym_eq
 from torch._inductor.pattern_matcher import (
     Arg,
@@ -56,6 +58,28 @@ def _shapes_statically_equal(lhs, rhs) -> bool:
     return len(lhs) == len(rhs) and statically_known_true(
         sym_eq(tuple(lhs), tuple(rhs))
     )
+
+
+def _propagated_val(op, val, *args):
+    """Run ``op`` on an existing ``meta["val"]`` to get the new node's ``val``.
+
+    A node inserted by a pass still needs a ``meta["val"]``, and building one
+    with ``torch.empty(shape, dtype=..., device="meta")`` gets three things
+    wrong: the tensor is not a ``FakeTensor`` (so ``FakeTensorUpdater`` cannot
+    propagate through it), it claims device ``meta`` rather than the graph's
+    real device, and it is contiguous -- whereas a real ``expand`` over a batch
+    dim has stride 0 there.  ``GraphLowering.run_node`` reads
+    ``n.meta["val"].stride()`` to constrain a lowered result, so a fabricated
+    stride is not inert.
+
+    Propagating through the op itself gets all three right.  The operands are
+    FakeTensors, so the call has to run under their own ``FakeTensorMode``;
+    ``detect_fake_mode`` returns ``None`` for a plain meta tensor, in which case
+    the op runs directly on it and is still correct.
+    """
+    fake_mode = detect_fake_mode(val)
+    with fake_mode if fake_mode is not None else contextlib.nullcontext():
+        return op(val, *args)
 
 
 @register_graph_pattern(
@@ -125,17 +149,14 @@ def _unflatten_mm_to_bmm(
     with graph.inserting_before(node):
         # unsqueeze weight to 3D+: [K, N] → [1, ..., 1, K, N]
         unsqueezed = rhs
-        rhs_dtype = rhs.meta["val"].dtype
-        unsqueezed_shape = list(rhs_shape)
-        for i in range(len(batch_dims)):
+        unsqueezed_val = rhs.meta["val"]
+        for _ in range(len(batch_dims)):
             unsqueezed = graph.call_function(
                 aten.unsqueeze.default,
                 args=(unsqueezed, 0),
             )
-            unsqueezed_shape = [1] + unsqueezed_shape
-            unsqueezed.meta["val"] = torch.empty(
-                unsqueezed_shape, dtype=rhs_dtype, device="meta"
-            )
+            unsqueezed_val = _propagated_val(aten.unsqueeze.default, unsqueezed_val, 0)
+            unsqueezed.meta["val"] = unsqueezed_val
 
         # expand to match batch dims: [1, ..., 1, K, N] → [B, ..., K, N]
         expanded_shape = batch_dims + [K, N]
@@ -143,8 +164,8 @@ def _unflatten_mm_to_bmm(
             aten.expand.default,
             args=(unsqueezed, expanded_shape),
         )
-        expanded.meta["val"] = torch.empty(
-            expanded_shape, dtype=rhs_dtype, device="meta"
+        expanded.meta["val"] = _propagated_val(
+            aten.expand.default, unsqueezed_val, expanded_shape
         )
 
         # Use spyre.batched_matmul for >3D to avoid FakeTensorUpdater crash
@@ -158,7 +179,12 @@ def _unflatten_mm_to_bmm(
             target,
             args=(lhs_input, expanded),
         )
-        bmm_node.meta["val"] = torch.empty(output_shape, dtype=rhs_dtype, device="meta")
+        # The bmm computes exactly what the erased view produced, so reuse that
+        # node's own fake tensor -- same shape, dtype, device and strides -- as
+        # _unflatten_bmm_batch_dims does.  Fabricating one here instead would
+        # hand downstream passes a tensor on the wrong device (see
+        # _propagated_val).
+        bmm_node.meta["val"] = output_view.meta["val"]
         copy_fx_custom_meta(node, bmm_node)
 
     # Replace all uses of mm and output view with the bmm
