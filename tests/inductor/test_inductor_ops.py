@@ -8392,6 +8392,59 @@ class TestOps(unittest.TestCase, metaclass=ParameterizedTestMeta):
         w = cached_xavier((6144, 4096))
         self.compare_with_cpu(fn, x, w, atol=0.5, rtol=0.1)
 
+    def test_matmul_bs1_3d_contiguous_weight(self):
+        """3-D activation @ a *contiguous* 2-D weight (issue #4155).
+
+        This decomposes to view -> mm -> view, which mm_to_bmm_pass rewrites
+        into bmm(x, expand(unsqueeze(w))) -- a batched matmul whose weight is
+        broadcast over the batch dim.  test_matmul_bs1_3d_linear is the only
+        other test of that path and it passes the weight transposed, so the
+        weight is restickified and the matmul reads a freshly built buffer.  A
+        contiguous weight is already stick-compatible on N, so it reaches the
+        matmul as the graph input itself -- a different y layout, previously
+        uncovered.
+
+        B=1 is the degenerate case worth pinning: the unit batch dim is
+        squeezed out of the iteration space, leaving a rank-3 op whose loop
+        space looks 2-D.  See test_matmul_bs2_3d_contiguous_weight for the
+        non-degenerate batch, where the weight is genuinely broadcast.
+        """
+
+        def fn(x, w):
+            return torch.matmul(x, w)
+
+        x = cached_xavier((1, 256, 1024))
+        w = cached_xavier((1024, 1024))
+        self.compare_with_cpu(fn, x, w, atol=0.5, rtol=0.1)
+
+    def test_matmul_bs2_3d_contiguous_weight(self):
+        """Same as the bs1 case with a real batch, so the weight broadcast
+        over the batch dim is not degenerate."""
+
+        def fn(x, w):
+            return torch.matmul(x, w)
+
+        x = cached_xavier((2, 256, 1024))
+        w = cached_xavier((1024, 1024))
+        self.compare_with_cpu(fn, x, w, atol=0.5, rtol=0.1)
+
+    def test_matmul_3d_contiguous_weight_reshaped(self):
+        """Folding to 2-D and reshaping back is the *same* graph as the 3-D form.
+
+        matmul(x.reshape(-1, K), w).reshape(B, M, N) decomposes to an
+        identical view/mm/view, so mm_to_bmm_pass fires on it too.  Pinned
+        because it looks like a workaround for #4155 and is not one -- only a
+        2-D result keeps the mm on lower_mm's 2-D branch.
+        """
+
+        def fn(x, w):
+            out = torch.matmul(x.reshape(-1, x.shape[-1]), w)
+            return out.reshape(x.shape[0], x.shape[1], w.shape[-1])
+
+        x = cached_xavier((1, 256, 1024))
+        w = cached_xavier((1024, 1024))
+        self.compare_with_cpu(fn, x, w, atol=0.5, rtol=0.1)
+
 
 if __name__ == "__main__":
     unittest.main()
